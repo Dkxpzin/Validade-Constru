@@ -689,18 +689,56 @@
         function exportData() {
             let csv = '';
             if (exportType === 'validade') {
-                if (lotes.length === 0) {
-                    alert('Nenhum lote com data de validade. Adicione produtos com data de validade primeiro.');
+                // Get all products with validity date
+                const produtosComValidade = produtos.filter(p => p.data_validade);
+                
+                if (produtosComValidade.length === 0 && lotes.length === 0) {
+                    alert('Nenhum produto com data de validade. Adicione produtos com data de validade primeiro.');
                     return;
                 }
-                csv = 'Produto,Categoria,Marca,Estoque,Data Validade,Status\n';
-                lotes.forEach(l => { 
-                    const d = getDias(l.data_validade), s = d < 0 ? 'VENCIDO' : d <= 30 ? 'VENCENDO' : 'OK';
-                    // Find the product to get the correct stock quantity
-                    const prod = produtos.find(p => p.id === l.produto_id);
-                    const qtdEstoque = prod ? (prod.quantidade || 0) : (l.quantidade || 0);
-                    csv += `"${l.produto?.nome || ''}","${l.produto?.categoria || ''}","${l.produto?.marca || ''}",${qtdEstoque},"${l.data_validade}","${s}"\n`; 
+                
+                // Build combined list from products and lotes
+                let itens = [];
+                
+                // From products
+                produtosComValidade.forEach(p => {
+                    const d = getDias(p.data_validade);
+                    itens.push({
+                        nome: p.nome,
+                        categoria: p.categoria,
+                        marca: p.marca || '',
+                        quantidade: p.quantidade || 0,
+                        data_validade: p.data_validade,
+                        status: d < 0 ? 'VENCIDO' : d <= 30 ? 'VENCENDO' : 'OK'
+                    });
                 });
+                
+                // From lotes (if they have different validity than product)
+                lotes.forEach(l => {
+                    if (l.data_validade && l.produto) {
+                        const prod = produtos.find(p => p.id === l.produto_id);
+                        const prodNome = prod ? prod.nome : (l.produto?.nome || '');
+                        // Only add if not already in list or if different date
+                        const existing = itens.find(it => it.nome === prodNome && it.data_validade === l.data_validade);
+                        if (!existing) {
+                            const d = getDias(l.data_validade);
+                            itens.push({
+                                nome: prodNome,
+                                categoria: l.produto?.categoria || '',
+                                marca: l.produto?.marca || '',
+                                quantidade: l.quantidade || 0,
+                                data_validade: l.data_validade,
+                                status: d < 0 ? 'VENCIDO' : d <= 30 ? 'VENCENDO' : 'OK'
+                            });
+                        }
+                    }
+                });
+                
+                csv = 'Produto,Categoria,Marca,Estoque,Data Validade,Status\n';
+                itens.forEach(i => {
+                    csv += `"${i.nome}","${i.categoria}","${i.marca}",${i.quantidade},"${i.data_validade}","${i.status}"\n`;
+                });
+                
                 updateMissionProgress('export');
             } else {
                 if (produtos.length === 0) {
@@ -736,13 +774,15 @@
                     if (cols.length < 5) continue;
                     
                     const nome = cols[0];
+                    const estoque = parseInt(cols[3]) || 0;
                     const dataVal = cols[4];
                     
                     if (!dataVal || dataVal === 'Data Validade') continue;
                     
                     const prod = produtos.find(p => p.nome.toLowerCase() === nome.toLowerCase());
                     if (prod) {
-                        prod.data_validade = dataVal;
+                        if (dataVal) prod.data_validade = dataVal;
+                        if (estoque > 0) prod.quantidade = estoque;
                         atualizados++;
                     }
                 }
@@ -750,7 +790,7 @@
                 saveData();
                 renderProducts();
                 renderDashboard();
-                alert(`✅ ${atualizados} produto(s) atualizado(s) com a data de validade!`);
+                alert(`✅ ${atualizados} produto(s) atualizado(s) com a data de validade e estoque!`);
                 renderExport();
             };
             reader.readAsText(file);
